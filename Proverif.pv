@@ -1,0 +1,104 @@
+(* Channel Definition *)
+free PriCh : channel [private].
+free LedgerCh : channel [private].
+free PubCh : channel.
+
+(* Private Parameters *)
+free ID_RU : bitstring [private].
+free PW_RU : bitstring [private].
+free ID_MD : bitstring [private].
+free sk : bitstring [private].
+
+(* Public Parameters *)
+const B : bitstring.
+free ID_FA : bitstring.
+
+(* Functions *)
+fun ADD(bitstring, bitstring) : bitstring.
+fun ADD2(bitstring, nat) : bitstring.
+fun ADD3(bitstring, bitstring, bitstring) : bitstring.
+fun MUL(bitstring, bitstring) : bitstring.
+fun H1(bitstring) : bitstring.
+fun H2(nat, bitstring) : bitstring.
+fun H3(bitstring, bitstring, bitstring) : bitstring.
+fun H4(bitstring, bitstring, bitstring, bitstring) : bitstring.
+fun H6(bitstring, bitstring, bitstring, bitstring, bitstring, bitstring) : bitstring.
+fun ECC(bitstring, bitstring) : bitstring.
+fun SE(bitstring, bitstring): bitstring.
+
+(* Destructors *)
+reduc forall m1 : bitstring, m2 : bitstring; SD(SE(m1, m2), m2) = m1.
+
+(* Equations *)
+equation forall m1 : bitstring, m2 : bitstring, m3 : bitstring, m4 : bitstring, m5 : bitstring, m6 : bitstring, m7 : bitstring, m8 : bitstring, m9 : bitstring;
+ECC(ADD(H4(m1, m2, m3, m4), ADD(MUL(H1(m5), m6), m7)) , ADD(ECC(m8, B), ECC(MUL(m8, m9), B))) =
+ECC(MUL(m8, ADD2(m9, 1)), ADD3(ECC(H4(m1, m2, m3, m4), B), ECC(m7, B), ECC(H1(m5), ECC(m6, B)))) [convergent].
+
+
+(* queries *)
+query attacker (sk).
+query attacker (ID_RU).
+query attacker (ID_MD).
+query attacker (PW_RU).
+query ID : bitstring; inj-event (EndSession (ID)) ==> inj-event (InitiateSession (ID)).
+
+(* Events *)
+event InitiateSession (bitstring).
+event EndSession (bitstring).
+
+(* Home Agent *)
+let pHA=
+new x_HA : bitstring;
+let PID_RU = H3(ID_RU, ID_MD, x_HA) in
+new pk_HA : bitstring;
+let s_RU = ADD(MUL(H1(PID_RU), pk_HA), x_HA) in
+let PK_HA = ECC(pk_HA, B) in
+let X_HA = ECC(x_HA, B) in
+out (LedgerCh, (PID_RU, X_HA, PK_HA));
+in (PriCh, (PK_FA : bitstring));
+out (PriCh, (PID_RU, s_RU, X_HA, PK_FA));
+0.
+
+(* Mobile Device *)
+let pMD=
+in (PriCh, (PID_RU : bitstring, s_RU : bitstring, X_HA : bitstring, PK_FA : bitstring));
+new x_RU : bitstring;
+let X_RU = ECC(H4(ID_RU, PW_RU, ID_MD, x_RU), B) in
+new T_RU : bitstring;
+let H_RU = H6(PID_RU, X_RU, X_HA, ID_FA, PK_FA, T_RU) in
+event InitiateSession(ID_RU);
+out (PubCh, (PID_RU, X_RU, H_RU, T_RU));
+in (PubCh, (xX_FA : bitstring, xH_FA : bitstring));
+let tk_RU = ECC(ADD(H4(ID_RU, PW_RU, ID_MD, x_RU), s_RU) , ADD(PK_FA, xX_FA)) in
+let sk_RU = H1(tk_RU) in
+out (PubCh, SE(sk, sk_RU));
+let xxH_FA = H3(xX_FA, sk_RU, T_RU) in
+if (xH_FA = xxH_FA) then
+let H_MD = H2(1, sk_RU) in
+out (PubCh, (H_MD));
+0.
+
+(* Foreign Agent *)
+let pFA=
+new pk_FA : bitstring;
+let PK_FA = ECC(pk_FA, B) in
+out (PriCh, (PK_FA));
+in (PubCh, (xPID_RU : bitstring, xX_RU : bitstring, xH_RU : bitstring, xT_RU : bitstring));
+in (LedgerCh, (PID_RU : bitstring, X_HA : bitstring, PK_HA : bitstring));
+let xxH_RU = H6(PID_RU, xX_RU, X_HA, ID_FA, PK_FA, xT_RU) in
+if (xH_RU = xxH_RU) then
+new x_FA : bitstring;
+let X_FA = ECC(MUL(pk_FA, x_FA), B) in
+let tk_FA = ECC(MUL(pk_FA, ADD2(x_FA, 1)), ADD3(xX_RU, X_HA, ECC(H1(PID_RU), PK_HA))) in
+let sk_FA = H1(tk_FA) in
+out (PubCh, SE(sk, sk_FA));
+let H_FA = H3(X_FA, sk_FA, xT_RU) in
+out (PubCh, (X_FA, H_FA));
+in (PubCh, (xH_MD : bitstring));
+let xxH_MD = H2(1, sk_FA) in
+if (xH_MD = xxH_MD) then
+event EndSession(ID_RU);
+0.
+
+process
+  ((!pMD) | (!pFA) | (!pHA))
